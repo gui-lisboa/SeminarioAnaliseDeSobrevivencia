@@ -1,0 +1,137 @@
+---
+title: "Random Survival Forests"
+subtitle: "RF aplicado à análise de sobrevivência"
+format:
+  revealjs: 
+    slide-number: true
+    chalkboard: 
+      buttons: false
+    preview-links: auto
+    logo: imagens/logo.png
+    css: styles.css
+    footer: Guilherme - Análise de Sobrevivência - 2022
+#resources:
+#  - demo.pdf
+---
+
+## Introdução
+
+**Definição**
+
+- Conjunto de árvores para análise de dados de sobrevivência censurados a direita.
+
+**Motivação**
+
+- Random Forest tem se mostrado eficaz em outros contextos de análise
+
+**Autores**
+
+- Hemant Ishwaran, Udaya B. Kogalur, Eugene H. Blackstone e Michael S. Lauer
+
+
+## Revisão - Random Forests
+
+- Random: escolha aleatória de observações (Bootstrap) por árvore
+- Forest: várias árvores com $m = \sqrt{p}$ atributos
+- Resultado: Bootstrap + Aggregation = Bagging
+- Acurácia: testes em observações não amostradas (**O**ut-**O**f-**B**agging)
+
+## Random Survival Forests
+
+### Procedimento
+
+1) Gerar **B** amostras dos dados originais
+2) Construir uma árvore por amostra selecionando alatóriamente **$\sqrt{p}$** atributos, utilizando alguma função que minimize o grau de impureza (e.g.: LogRank), sujeito à restrição de que cada nó deve ter $d_0 > 0$ eventos únicos
+3) Calcular função de taxa de falha acumulada para cada árvore
+4) Calcular a média das funções de taxa de falha acumulada
+5) Usar OOB para medidas de erro
+
+## Random Survival Forests
+
+### Taxa de falha acumulada
+
+- Estimador de Nelson–Aalen: $H_h(t) = \sum_{t_{l,h} \leq t}{\frac{d_{l,h}}{Y_{l,h}}}$
+
+### Avaliação do modelo
+
+- Score calculado pelo índice de Harrel (Índice de Concordância, C-index)
+- Formação de pares concordantes e discordantes
+- Área sob a curva ROC (Receiver Operating Characteristic)
+
+## Exemplo
+
+Importando os dados
+
+```{python}
+#| echo: true
+#| code-line-numbers: "1-12|13-16"
+
+import pandas as pd
+
+dados = pd.read_csv('banco_chagas.csv', dtype={
+  "Obito": bool,
+  "Sexo": "category",
+  "ClasseFuncional": "category",
+  "Sincope": "category"
+})
+
+dados = dados.loc[dados.tempo != 0]
+dados.Sincope = pd.Categorical(dados.Sincope, ordered=True)
+dados.ClasseFuncional = pd.Categorical(dados.ClasseFuncional, ordered=True)
+
+X = dados.drop(["Obito", "tempo"], axis=1)
+y = dados[["Obito", "tempo"]].to_records(index=False)
+
+```
+
+## Exemplo
+
+Criação, ajuste e adequação do modelo
+
+```{python}
+#| echo: true
+#| code-line-numbers: "1,4,6-10|2,12-14"
+
+from sklearn.model_selection import train_test_split
+from sksurv.ensemble import RandomSurvivalForest
+
+seed = 10
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.25,
+    random_state=seed)
+
+rsf = RandomSurvivalForest(random_state=seed)
+rsf.fit(X_train, y_train)
+score = rsf.score(X_test, y_test)
+```
+
+```{python}
+print(f'Score = {score}')
+```
+
+## Exemplo
+
+```{python}
+#| echo: true
+#| code-line-numbers: true
+
+from sklearn.inspection import permutation_importance
+importancias = permutation_importance(rsf, X_test, y_test, random_state=seed)
+```
+
+```{python}
+pd.DataFrame(
+    {k: importancias[k] for k in ("importances_mean", "importances_std",)},
+    index=X_test.columns
+).sort_values(by="importances_mean", ascending=False)
+```
+
+
+## Referências
+
+- [Hemant Ishwaran, Udaya B. Kogalur, Eugene H. Blackstone, Michael S. Lauer. "Random survival forests." The Annals of Applied Statistics, 2(3) 841-860 September 2008.](https://projecteuclid.org/journals/annals-of-applied-statistics/volume-2/issue-3/Random-survival-forests/10.1214/08-AOAS169.full)
+
+- [SciKit-Survival](https://scikit-survival.readthedocs.io/en/stable/user_guide/random-survival-forest.html)
